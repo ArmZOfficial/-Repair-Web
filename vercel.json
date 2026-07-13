@@ -3,11 +3,23 @@
   "services": {
     "frontend": {
       "root": "frontend",
-      "framework": "vite"
+      "framework": "vite",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist"
     },
     "backend": {
       "root": "backend",
       "framework": "express"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "/api/index.js"
+    }
+  ]
 }
