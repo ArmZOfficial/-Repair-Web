@@ -6,7 +6,7 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const db = require('./database');
+const { getDb, getDbReady, saveDatabase } = require('./database');
 
 const app = express();
 const PORT = 5000;
@@ -25,8 +25,18 @@ if (!fs.existsSync(uploadsDir)) {
 app.use(cors());
 app.use(express.json());
 
-app.use('/uploads', express.static(uploadsDir));
+// Ensure database is ready before handling any request
+app.use(async (req, res, next) => {
+  try {
+    await getDbReady();
+    next();
+  } catch (err) {
+    console.error('Database init error:', err);
+    res.status(500).json({ error: 'Database initialization failed' });
+  }
+});
 
+app.use('/uploads', express.static(uploadsDir));
 
 const frontendBuildPath = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendBuildPath)) {
@@ -63,33 +73,61 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Database helper promises
+// Database helper functions (sql.js compatible)
 const dbGet = (sql, params = []) => {
   return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
+    try {
+      const db = getDb();
+      const stmt = db.prepare(sql);
+      if (params.length > 0) stmt.bind(params);
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        stmt.free();
+        resolve(row);
+      } else {
+        stmt.free();
+        resolve(undefined);
+      }
+    } catch (err) {
+      reject(err);
+    }
   });
 };
 
 const dbAll = (sql, params = []) => {
   return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
+    try {
+      const db = getDb();
+      const stmt = db.prepare(sql);
+      if (params.length > 0) stmt.bind(params);
+      const results = [];
+      while (stmt.step()) {
+        results.push(stmt.getAsObject());
+      }
+      stmt.free();
+      resolve(results);
+    } catch (err) {
+      reject(err);
+    }
   });
 };
 
 const dbRun = (sql, params = []) => {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
+    try {
+      const db = getDb();
+      db.run(sql, params);
+      const changes = db.getRowsModified();
+      const result = db.exec("SELECT last_insert_rowid() as id");
+      const id = result.length > 0 ? result[0].values[0][0] : 0;
+      saveDatabase();
+      resolve({ id, changes });
+    } catch (err) {
+      reject(err);
+    }
   });
 };
+
 
 // --- AUTH ROUTES ---
 
