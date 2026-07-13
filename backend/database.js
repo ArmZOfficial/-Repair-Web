@@ -12,7 +12,16 @@ const dbPath = isVercel
   : path.resolve(__dirname, 'database.sqlite');
 
 async function initializeDatabase() {
-  const SQL = await initSqlJs();
+  let SQL;
+  try {
+    // Try loading WASM from local node_modules first
+    SQL = await initSqlJs();
+  } catch (e) {
+    // Fallback: load WASM from CDN (works on Vercel serverless)
+    SQL = await initSqlJs({
+      locateFile: file => `https://sql.js.org/dist/${file}`
+    });
+  }
 
   // Try loading existing database file
   try {
