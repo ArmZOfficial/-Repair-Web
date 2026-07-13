@@ -24,6 +24,15 @@ if (!fs.existsSync(uploadsDir)) {
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Normalize URL for Vercel serverless / multi-service where /api prefix might be stripped when mounted at /api
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api') && !req.url.startsWith('/uploads') && req.url !== '/') {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
 const frontendBuildPath = path.join(__dirname, '../frontend/dist');
