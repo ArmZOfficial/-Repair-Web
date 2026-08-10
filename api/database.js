@@ -1,69 +1,59 @@
-const { Pool } = require('pg');
+const { Redis } = require('@upstash/redis');
 const bcrypt = require('bcryptjs');
 
-let pool = null;
+// Connect to Upstash Redis
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '',
+  token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '',
+});
+
 let _dbReadyPromise = null;
 
-// Connect to Vercel Postgres or local Postgres
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/postgres';
+// Helpers to read/write JSON arrays from Redis
+async function getTable(key) {
+  try {
+    const data = await redis.get(key);
+    // Upstash Redis parses JSON automatically
+    if (!data) return [];
+    return Array.isArray(data) ? data : [data];
+  } catch (err) {
+    console.error(`Error reading ${key} from Redis:`, err);
+    return [];
+  }
+}
+
+async function setTable(key, data) {
+  try {
+    await redis.set(key, JSON.stringify(data));
+  } catch (err) {
+    console.error(`Error saving ${key} to Redis:`, err);
+  }
+}
+
+// Emulate auto-increment
+async function getNextId(table) {
+  try {
+    return await redis.incr(`${table}_id_seq`);
+  } catch (err) {
+    console.error(`Error incrementing ID for ${table}:`, err);
+    return Date.now(); // Fallback to timestamp
+  }
+}
 
 async function initializeDatabase() {
-  pool = new Pool({
-    connectionString,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-  });
-
   try {
-    // 1. Create Users table
-    await pool.query(`CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      "fullName" TEXT NOT NULL,
-      "roomNumber" TEXT,
-      role TEXT CHECK(role IN ('resident', 'admin', 'technician', 'executive')) NOT NULL,
-      "userType" TEXT,
-      "avatarUrl" TEXT,
-      "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
+    if (!process.env.KV_REST_API_URL && !process.env.UPSTASH_REDIS_REST_URL) {
+      console.warn("WARNING: Redis URL is not set in environment variables!");
+    } else {
+      // Test ping
+      await redis.ping();
+    }
 
-    // 2. Create Repairs table
-    await pool.query(`CREATE TABLE IF NOT EXISTS repairs (
-      id SERIAL PRIMARY KEY,
-      "userId" INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      category TEXT CHECK(category IN ('plumbing', 'electrical', 'furniture', 'appliance', 'structural', 'other')) NOT NULL,
-      "roomNumber" TEXT NOT NULL,
-      "imageUrl" TEXT,
-      "detectedObject" TEXT,
-      status TEXT CHECK(status IN ('pending', 'in_progress', 'completed', 'cancelled')) DEFAULT 'pending',
-      "adminNotes" TEXT,
-      "technicianId" INTEGER,
-      "scheduledTime" TEXT,
-      "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("userId") REFERENCES users(id),
-      FOREIGN KEY ("technicianId") REFERENCES users(id)
-    )`);
-
-    // 3. Create Technician Schedules table
-    await pool.query(`CREATE TABLE IF NOT EXISTS technician_schedules (
-      id SERIAL PRIMARY KEY,
-      "technicianId" INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      "startTime" TIMESTAMP NOT NULL,
-      "endTime" TIMESTAMP NOT NULL,
-      "repairId" INTEGER,
-      FOREIGN KEY ("technicianId") REFERENCES users(id)
-    )`);
-
-    // 4. Seed Data if table is empty
-    const countResult = await pool.query("SELECT COUNT(*) as count FROM users");
-    const userCount = parseInt(countResult.rows[0].count, 10);
-
-    if (userCount === 0) {
-      console.log('Seeding initial users...');
+    // Check if seeded
+    const users = await getTable('users');
+    
+    if (users.length === 0) {
+      console.log('Seeding initial data to Redis...');
       const salt = await bcrypt.genSalt(10);
       const adminHash = await bcrypt.hash('12345', salt);
       const user1Hash = await bcrypt.hash('user123', salt);
@@ -71,56 +61,43 @@ async function initializeDatabase() {
       const tech1Hash = await bcrypt.hash('tech123', salt);
       const exec1Hash = await bcrypt.hash('exec123', salt);
 
-      await pool.query(`INSERT INTO users (username, password, "fullName", "roomNumber", role) VALUES ($1, $2, $3, $4, $5)`,
-        ['admin', adminHash, 'ผู้ดูแล หอพัก (Admin)', null, 'admin']);
-      
-      const resUser1 = await pool.query(`INSERT INTO users (username, password, "fullName", "roomNumber", role) VALUES ($1, $2, $3, $4, $5) RETURNING id, "roomNumber"`,
-        ['user1', user1Hash, 'สมชาย รักดี', '301', 'resident']);
-      
-      const resUser2 = await pool.query(`INSERT INTO users (username, password, "fullName", "roomNumber", role) VALUES ($1, $2, $3, $4, $5) RETURNING id, "roomNumber"`,
-        ['user2', user2Hash, 'สมหญิง เรียนดี', '405', 'resident']);
-      
-      await pool.query(`INSERT INTO users (username, password, "fullName", "roomNumber", role) VALUES ($1, $2, $3, $4, $5)`,
-        ['tech1', tech1Hash, 'ช่างสมศักดิ์ ประชาดี (ไฟฟ้า)', null, 'technician']);
-      
-      await pool.query(`INSERT INTO users (username, password, "fullName", "roomNumber", role) VALUES ($1, $2, $3, $4, $5)`,
-        ['exec1', exec1Hash, 'ผู้บริหารระดับสูง (Executive)', null, 'executive']);
+      const adminId = await getNextId('users');
+      const user1Id = await getNextId('users');
+      const user2Id = await getNextId('users');
+      const tech1Id = await getNextId('users');
+      const exec1Id = await getNextId('users');
 
-      // Seed Repairs
-      const user1 = resUser1.rows[0];
-      const user2 = resUser2.rows[0];
+      const initialUsers = [
+        { id: adminId, username: 'admin', password: adminHash, fullName: 'ผู้ดูแล หอพัก (Admin)', roomNumber: null, role: 'admin', createdAt: new Date().toISOString() },
+        { id: user1Id, username: 'user1', password: user1Hash, fullName: 'สมชาย รักดี', roomNumber: '301', role: 'resident', createdAt: new Date().toISOString() },
+        { id: user2Id, username: 'user2', password: user2Hash, fullName: 'สมหญิง เรียนดี', roomNumber: '405', role: 'resident', createdAt: new Date().toISOString() },
+        { id: tech1Id, username: 'tech1', password: tech1Hash, fullName: 'ช่างสมศักดิ์ ประชาดี (ไฟฟ้า)', roomNumber: null, role: 'technician', createdAt: new Date().toISOString() },
+        { id: exec1Id, username: 'exec1', password: exec1Hash, fullName: 'ผู้บริหารระดับสูง (Executive)', roomNumber: null, role: 'executive', createdAt: new Date().toISOString() }
+      ];
+      await setTable('users', initialUsers);
 
-      if (user1) {
-        await pool.query(`INSERT INTO repairs ("userId", title, description, category, "roomNumber", "detectedObject", status, "adminNotes") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [user1.id, 'ก๊อกน้ำรั่วในห้องน้ำ', 'มีน้ำหยดออกมาริมขอบก๊อกตลอดเวลา หมุนปิดสนิทแล้วก็ยังหยด', 'plumbing', user1.roomNumber, 'faucet', 'pending', null]);
-        await pool.query(`INSERT INTO repairs ("userId", title, description, category, "roomNumber", "detectedObject", status, "adminNotes") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [user1.id, 'หลอดไฟไฟกระพริบ', 'หลอดไฟนีออนตรงกลางห้องนอนเปิดแล้วกระพริบถี่ๆ และมีเสียงดังหึ่งๆ', 'electrical', user1.roomNumber, 'light bulb', 'in_progress', 'รับเรื่องแล้ว กำลังเบิกอะไหล่หลอดไฟชุดใหม่']);
-      }
+      const repair1Id = await getNextId('repairs');
+      const repair2Id = await getNextId('repairs');
+      const repair3Id = await getNextId('repairs');
+      const repair4Id = await getNextId('repairs');
 
-      if (user2) {
-        await pool.query(`INSERT INTO repairs ("userId", title, description, category, "roomNumber", "detectedObject", status, "adminNotes") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [user2.id, 'บานพับตู้เสื้อผ้าชำรุด', 'ตู้เสื้อผ้าไม้บานขวา หลุดออกจากบานพับ ทำให้ปิดตู้ไม่ได้เลย', 'furniture', user2.roomNumber, 'wardrobe / door hinge', 'completed', 'ดำเนินการเปลี่ยนบานพับและขันสกรูยึดใหม่เรียบร้อยแล้วเมื่อช่วงบ่าย']);
-        await pool.query(`INSERT INTO repairs ("userId", title, description, category, "roomNumber", "detectedObject", status, "adminNotes") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [user2.id, 'เครื่องปรับอากาศไม่เย็น', 'เปิดแอร์อุณหภูมิ 23 องศาแล้ว แต่มีแค่ลมร้อนออกมา ไม่มีลมเย็นเลย', 'appliance', user2.roomNumber, 'air conditioner', 'pending', null]);
-      }
+      const initialRepairs = [
+        { id: repair1Id, userId: user1Id, title: 'ก๊อกน้ำรั่วในห้องน้ำ', description: 'มีน้ำหยดออกมาริมขอบก๊อกตลอดเวลา หมุนปิดสนิทแล้วก็ยังหยด', category: 'plumbing', roomNumber: '301', detectedObject: 'faucet', status: 'pending', adminNotes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        { id: repair2Id, userId: user1Id, title: 'หลอดไฟไฟกระพริบ', description: 'หลอดไฟนีออนตรงกลางห้องนอนเปิดแล้วกระพริบถี่ๆ และมีเสียงดังหึ่งๆ', category: 'electrical', roomNumber: '301', detectedObject: 'light bulb', status: 'in_progress', adminNotes: 'รับเรื่องแล้ว กำลังเบิกอะไหล่หลอดไฟชุดใหม่', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        { id: repair3Id, userId: user2Id, title: 'บานพับตู้เสื้อผ้าชำรุด', description: 'ตู้เสื้อผ้าไม้บานขวา หลุดออกจากบานพับ ทำให้ปิดตู้ไม่ได้เลย', category: 'furniture', roomNumber: '405', detectedObject: 'wardrobe / door hinge', status: 'completed', adminNotes: 'ดำเนินการเปลี่ยนบานพับและขันสกรูยึดใหม่เรียบร้อยแล้วเมื่อช่วงบ่าย', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        { id: repair4Id, userId: user2Id, title: 'เครื่องปรับอากาศไม่เย็น', description: 'เปิดแอร์อุณหภูมิ 23 องศาแล้ว แต่มีแค่ลมร้อนออกมา ไม่มีลมเย็นเลย', category: 'appliance', roomNumber: '405', detectedObject: 'air conditioner', status: 'pending', adminNotes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+      ];
+      await setTable('repairs', initialRepairs);
+      await setTable('technician_schedules', []);
 
       console.log('Seeding complete.');
     }
-
-    console.log('Database initialized successfully.');
-    return pool;
+    
+    console.log('Redis Database initialized successfully.');
   } catch (err) {
-    console.error('Failed to initialize database:', err);
+    console.error('Failed to initialize Redis:', err);
     throw err;
   }
-}
-
-function saveDatabase() {
-  // No-op for Postgres
-}
-
-function getDb() {
-  return pool;
 }
 
 function getDbReady() {
@@ -133,4 +110,4 @@ function getDbReady() {
 // Start initialization immediately
 getDbReady().catch(console.error);
 
-module.exports = { getDb, getDbReady, saveDatabase };
+module.exports = { getDbReady, getTable, setTable, getNextId };
