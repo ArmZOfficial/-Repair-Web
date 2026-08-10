@@ -74,58 +74,53 @@ const authenticateToken = (req, res, next) => {
 };
 
 // Database helper functions (sql.js compatible)
-const dbGet = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    try {
-      const db = getDb();
-      const stmt = db.prepare(sql);
-      if (params.length > 0) stmt.bind(params);
-      if (stmt.step()) {
-        const row = stmt.getAsObject();
-        stmt.free();
-        resolve(row);
-      } else {
-        stmt.free();
-        resolve(undefined);
-      }
-    } catch (err) {
-      reject(err);
-    }
-  });
+const dbGet = async (sql, params = []) => {
+  try {
+    const pool = getDb();
+    let paramIndex = 1;
+    const pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+    const result = await pool.query(pgSql, params);
+    return result.rows.length > 0 ? result.rows[0] : undefined;
+  } catch (err) {
+    throw err;
+  }
 };
 
-const dbAll = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    try {
-      const db = getDb();
-      const stmt = db.prepare(sql);
-      if (params.length > 0) stmt.bind(params);
-      const results = [];
-      while (stmt.step()) {
-        results.push(stmt.getAsObject());
-      }
-      stmt.free();
-      resolve(results);
-    } catch (err) {
-      reject(err);
-    }
-  });
+const dbAll = async (sql, params = []) => {
+  try {
+    const pool = getDb();
+    let paramIndex = 1;
+    const pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+    const result = await pool.query(pgSql, params);
+    return result.rows;
+  } catch (err) {
+    throw err;
+  }
 };
 
-const dbRun = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    try {
-      const db = getDb();
-      db.run(sql, params);
-      const changes = db.getRowsModified();
-      const result = db.exec("SELECT last_insert_rowid() as id");
-      const id = result.length > 0 ? result[0].values[0][0] : 0;
-      saveDatabase();
-      resolve({ id, changes });
-    } catch (err) {
-      reject(err);
+const dbRun = async (sql, params = []) => {
+  try {
+    const pool = getDb();
+    let paramIndex = 1;
+    let pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+    
+    // Automatically append RETURNING id for INSERT statements if not present
+    if (pgSql.trim().toUpperCase().startsWith('INSERT') && !pgSql.toUpperCase().includes('RETURNING')) {
+      pgSql += ' RETURNING id';
     }
-  });
+
+    const result = await pool.query(pgSql, params);
+    
+    // Extract ID if returning was used (e.g. for INSERTs)
+    let id = 0;
+    if (result.rows && result.rows.length > 0 && result.rows[0].id !== undefined) {
+      id = result.rows[0].id;
+    }
+    
+    return { id, changes: result.rowCount };
+  } catch (err) {
+    throw err;
+  }
 };
 
 
@@ -156,7 +151,7 @@ app.post('/api/auth/register', upload.single('avatar'), async (req, res) => {
     const avatarUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     const result = await dbRun(
-      'INSERT INTO users (username, password, fullName, userType, role, avatarUrl) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO users (username, password, "fullName", "userType", role, "avatarUrl") VALUES (?, ?, ?, ?, ?, ?)',
       [username, hashedPassword, fullName, role === 'admin' ? null : userType, role, avatarUrl]
     );
 
@@ -215,7 +210,7 @@ app.post('/api/auth/login', async (req, res) => {
 // Get profile
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
-    const user = await dbGet('SELECT id, username, fullName, userType, role, avatarUrl, createdAt FROM users WHERE id = ?', [req.user.id]);
+    const user = await dbGet('SELECT id, username, "fullName", "userType", role, "avatarUrl", "createdAt" FROM users WHERE id = ?', [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
@@ -241,11 +236,11 @@ app.put('/api/auth/profile', authenticateToken, upload.single('avatar'), async (
       return res.status(404).json({ error: 'User not found.' });
     }
 
-    let sql = 'UPDATE users SET fullName = ?';
+    let sql = 'UPDATE users SET "fullName" = ?';
     let params = [fullName];
 
     if (userType) {
-      sql += ', userType = ?';
+      sql += ', "userType" = ?';
       params.push(userType);
     }
 
@@ -258,7 +253,7 @@ app.put('/api/auth/profile', authenticateToken, upload.single('avatar'), async (
 
     if (req.file) {
       const avatarUrl = `/uploads/${req.file.filename}`;
-      sql += ', avatarUrl = ?';
+      sql += ', "avatarUrl" = ?';
       params.push(avatarUrl);
     }
 
@@ -267,7 +262,7 @@ app.put('/api/auth/profile', authenticateToken, upload.single('avatar'), async (
 
     await dbRun(sql, params);
 
-    const updatedUser = await dbGet('SELECT id, username, fullName, userType, role, avatarUrl, createdAt FROM users WHERE id = ?', [userId]);
+    const updatedUser = await dbGet('SELECT id, username, "fullName", "userType", role, "avatarUrl", "createdAt" FROM users WHERE id = ?', [userId]);
 
     res.json({
       message: 'Profile updated successfully.',
@@ -294,7 +289,7 @@ app.post('/api/repairs', authenticateToken, upload.single('image'), async (req, 
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     const result = await dbRun(
-      `INSERT INTO repairs (userId, title, description, category, roomNumber, imageUrl, detectedObject, status)
+      `INSERT INTO repairs ("userId", title, description, category, "roomNumber", "imageUrl", "detectedObject", status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [userId, title, description, category, roomNumber, imageUrl, detectedObject || null]
     );
@@ -317,13 +312,13 @@ app.get('/api/repairs', authenticateToken, async (req, res) => {
     let repairs;
     if (req.user.role === 'admin' || req.user.role === 'executive') {
       repairs = await dbAll(
-        `SELECT r.*, u.fullName as residentName, u.avatarUrl as residentAvatarUrl 
+        `SELECT r.*, u."fullName" as "residentName", u."avatarUrl" as "residentAvatarUrl" 
          FROM repairs r 
-         JOIN users u ON r.userId = u.id 
-         ORDER BY r.createdAt DESC`
+         JOIN users u ON r."userId" = u.id 
+         ORDER BY r."createdAt" DESC`
       );
     } else if (req.user.role === 'technician') {
-      const techUser = await dbGet('SELECT fullName FROM users WHERE id = ?', [req.user.id]);
+      const techUser = await dbGet('SELECT "fullName" FROM users WHERE id = ?', [req.user.id]);
       const fullName = techUser ? techUser.fullName : '';
       let categoryFilter = '';
       
@@ -340,18 +335,18 @@ app.get('/api/repairs', authenticateToken, async (req, res) => {
       }
 
       repairs = await dbAll(
-        `SELECT r.*, u.fullName as residentName, u.avatarUrl as residentAvatarUrl 
+        `SELECT r.*, u."fullName" as "residentName", u."avatarUrl" as "residentAvatarUrl" 
          FROM repairs r 
-         JOIN users u ON r.userId = u.id 
-         WHERE r.technicianId = ? OR (r.technicianId IS NULL AND r.status = 'pending' ${categoryFilter})
-         ORDER BY r.createdAt DESC`,
+         JOIN users u ON r."userId" = u.id 
+         WHERE r."technicianId" = ? OR (r."technicianId" IS NULL AND r.status = 'pending' ${categoryFilter})
+         ORDER BY r."createdAt" DESC`,
         [req.user.id]
       );
     } else {
       repairs = await dbAll(
         `SELECT * FROM repairs 
-         WHERE userId = ? 
-         ORDER BY createdAt DESC`,
+         WHERE "userId" = ? 
+         ORDER BY "createdAt" DESC`,
         [req.user.id]
       );
     }
@@ -564,7 +559,7 @@ app.put('/api/repairs/:id/status', authenticateToken, async (req, res) => {
 
     await dbRun(
       `UPDATE repairs 
-       SET status = ?, adminNotes = ?, technicianId = ?, scheduledTime = ?, updatedAt = CURRENT_TIMESTAMP 
+       SET status = ?, "adminNotes" = ?, "technicianId" = ?, "scheduledTime" = ?, "updatedAt" = CURRENT_TIMESTAMP 
        WHERE id = ?`,
       [status, finalAdminNotes, finalTechnicianId, finalScheduledTime, id]
     );
@@ -588,7 +583,7 @@ app.delete('/api/repairs', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Only admins can clear all repair requests.' });
     }
 
-    await dbRun('DELETE FROM technician_schedules WHERE repairId IS NOT NULL');
+    await dbRun('DELETE FROM technician_schedules WHERE "repairId" IS NOT NULL');
     await dbRun('DELETE FROM repairs');
     res.json({ message: 'All repair requests and their schedules cleared successfully.' });
   } catch (err) {
@@ -610,7 +605,7 @@ app.delete('/api/repairs/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Repair request not found.' });
     }
 
-    await dbRun('DELETE FROM technician_schedules WHERE repairId = ?', [id]);
+    await dbRun('DELETE FROM technician_schedules WHERE "repairId" = ?', [id]);
     await dbRun('DELETE FROM repairs WHERE id = ?', [id]);
     res.json({ message: `Repair request #${id} deleted successfully.` });
   } catch (err) {
@@ -624,7 +619,7 @@ app.delete('/api/repairs/:id', authenticateToken, async (req, res) => {
 // --- TECHNICIANS & SCHEDULES ---
 app.get('/api/technicians', authenticateToken, async (req, res) => {
   try {
-    const technicians = await dbAll('SELECT id, username, fullName, avatarUrl FROM users WHERE role = "technician"');
+    const technicians = await dbAll(`SELECT id, username, "fullName", "avatarUrl" FROM users WHERE role = 'technician'`);
     res.json(technicians);
   } catch (err) {
     console.error(err);
@@ -635,11 +630,11 @@ app.get('/api/technicians', authenticateToken, async (req, res) => {
 app.get('/api/technicians/schedule', authenticateToken, async (req, res) => {
   try {
     const schedules = await dbAll(`
-      SELECT s.*, u.fullName as technicianName, r.status as repairStatus
+      SELECT s.*, u."fullName" as "technicianName", r.status as "repairStatus"
       FROM technician_schedules s
-      JOIN users u ON s.technicianId = u.id
-      LEFT JOIN repairs r ON s.repairId = r.id
-      ORDER BY s.startTime ASC
+      JOIN users u ON s."technicianId" = u.id
+      LEFT JOIN repairs r ON s."repairId" = r.id
+      ORDER BY s."startTime" ASC
     `);
     res.json(schedules);
   } catch (err) {
@@ -661,7 +656,7 @@ app.post('/api/technicians/schedule', authenticateToken, async (req, res) => {
     }
 
     const result = await dbRun(
-      'INSERT INTO technician_schedules (technicianId, title, startTime, endTime, repairId) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO technician_schedules ("technicianId", title, "startTime", "endTime", "repairId") VALUES (?, ?, ?, ?, ?)',
       [targetTechId, title, startTime, endTime, repairId || null]
     );
     res.status(201).json({ message: 'Schedule added successfully.', id: result.id });
@@ -679,20 +674,20 @@ app.get('/api/analytics/yearly', authenticateToken, async (req, res) => {
     }
     
     // Total requests
-    const { total } = await dbGet('SELECT COUNT(*) as total FROM repairs');
+    const { total } = await dbGet('SELECT COUNT(*)::int as total FROM repairs');
     
     // Status counts
-    const statusCounts = await dbAll('SELECT status, COUNT(*) as count FROM repairs GROUP BY status');
+    const statusCounts = await dbAll('SELECT status, COUNT(*)::int as count FROM repairs GROUP BY status');
     
     // Category counts
-    const categoryCounts = await dbAll('SELECT category, COUNT(*) as count FROM repairs GROUP BY category');
+    const categoryCounts = await dbAll('SELECT category, COUNT(*)::int as count FROM repairs GROUP BY category');
 
     // Monthly totals for current year
     const monthlyCounts = await dbAll(`
-      SELECT strftime('%m', createdAt) as month, COUNT(*) as count 
+      SELECT TO_CHAR("createdAt", 'MM') as month, COUNT(*)::int as count 
       FROM repairs 
-      WHERE strftime('%Y', createdAt) = strftime('%Y', 'now') 
-      GROUP BY month
+      WHERE TO_CHAR("createdAt", 'YYYY') = TO_CHAR(CURRENT_TIMESTAMP, 'YYYY') 
+      GROUP BY TO_CHAR("createdAt", 'MM')
     `);
 
     res.json({
@@ -713,7 +708,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const users = await dbAll('SELECT id, username, fullName, userType, role, avatarUrl, createdAt FROM users ORDER BY createdAt DESC');
+    const users = await dbAll('SELECT id, username, "fullName", "userType", role, "avatarUrl", "createdAt" FROM users ORDER BY "createdAt" DESC');
     res.json(users);
   } catch (err) {
     console.error(err);
@@ -729,7 +724,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     const { fullName, userType, role } = req.body;
     const userId = req.params.id;
 
-    await dbRun('UPDATE users SET fullName = ?, userType = ?, role = ? WHERE id = ?', [fullName, userType, role, userId]);
+    await dbRun('UPDATE users SET "fullName" = ?, "userType" = ?, role = ? WHERE id = ?', [fullName, userType, role, userId]);
     res.json({ message: 'User updated successfully' });
   } catch (err) {
     console.error(err);

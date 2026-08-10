@@ -47,9 +47,7 @@ export default function Login() {
     }
   };
 
-  const handleGoogleLogin = () => {
-    alert('ระบบเชื่อมต่อ Google Login กำลังอยู่ในระหว่างการพัฒนา กรุณาใช้บัญชีทดสอบ (เช่น user1, tech1, admin)');
-  };
+
 
   return (
     <div style={{
@@ -138,42 +136,7 @@ export default function Login() {
           </div>
         )}
 
-        {/* Google Continue Button */}
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          style={{
-            width: '100%',
-            padding: '12px',
-            background: '#ffffff',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            fontSize: '14px',
-            fontWeight: '600',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            marginBottom: '24px',
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <span style={{ fontWeight: '800', color: '#ea4335' }}>G</span> ดำเนินการต่อด้วย Google
-        </button>
 
-        {/* Divider */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: '24px'
-        }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
-          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>หรือใช้อีเมลมหาวิทยาลัย</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
-        </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit}>

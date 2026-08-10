@@ -81,9 +81,7 @@ export default function Register() {
     }
   };
 
-  const handleGoogleLogin = () => {
-    alert('ระบบสมัครสมาชิกด้วย Google Login กำลังอยู่ในระหว่างการพัฒนา');
-  };
+
 
   return (
     <div style={{
@@ -169,36 +167,7 @@ export default function Register() {
           </div>
         )}
 
-        {/* Google Continue Button */}
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          style={{
-            width: '100%',
-            padding: '12px',
-            background: '#ffffff',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            fontSize: '14px',
-            fontWeight: '600',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            marginBottom: '24px'
-          }}
-        >
-          <span style={{ fontWeight: '800', color: '#ea4335' }}>G</span> สมัครสมาชิกด้วย Google
-        </button>
 
-        {/* Divider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
-          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>หรือกรอกข้อมูลสมัครสมาชิก</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
-        </div>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
