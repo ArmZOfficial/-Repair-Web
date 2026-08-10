@@ -191,7 +191,7 @@ export default function Register() {
               className="form-input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="เช่น student@university.ac.th หรือ user101"
+              placeholder="เช่น student@university.ac.th"
               required
             />
           </div>

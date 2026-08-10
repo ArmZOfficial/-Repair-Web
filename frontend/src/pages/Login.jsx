@@ -148,7 +148,7 @@ export default function Login() {
               className="form-input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="student@university.ac.th หรือ user1"
+              placeholder="student@university.ac.th"
               required
             />
           </div>
@@ -187,9 +187,7 @@ export default function Login() {
           </button>
         </form>
 
-        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>
-          บัญชีทดสอบ: <code>user1</code>, <code>tech1</code>, <code>admin</code> (รหัส: <code>user123</code> / <code>12345</code>)
-        </div>
+
       </div>
     </div>
   );
