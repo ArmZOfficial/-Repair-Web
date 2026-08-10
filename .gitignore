@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Database runtime & Uploads
+*.db
+*.sqlite
+uploads/*
+!uploads/.gitkeep
+
+# Scratch and debugging scripts
+raw_match_*.json
+step_*.txt
+step_*.json
+replaceText.js
+restored_*.jsx
+rebuilt_clean_dashboard.jsx
+check_schema.js
+clear_calendar.js
+temp-*.js
+replace_end.cjs
