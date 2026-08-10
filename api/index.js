@@ -418,7 +418,7 @@ app.put('/api/repairs/:id/status', authenticateToken, async (req, res) => {
     const repair = repairs[rIndex];
 
     if (req.user.role !== 'admin' && req.user.role !== 'technician') {
-      if (repair.userId !== req.user.id) return res.status(403).json({ error: 'Access denied. You cannot modify other residents\\' requests.' });
+      if (repair.userId !== req.user.id) return res.status(403).json({ error: "Access denied. You cannot modify other residents' requests." });
       if (status !== 'cancelled') return res.status(400).json({ error: 'Residents can only cancel their own repair requests.' });
       if (repair.status !== 'pending' && repair.status !== 'in_progress') return res.status(400).json({ error: 'Cannot cancel a request that is already completed or cancelled.' });
     }
