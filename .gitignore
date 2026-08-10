@@ -1,7 +1,3 @@
-# Dependencies
-node_modules/
-package-lock.json
-
 # Logs
 logs
 *.log
@@ -9,38 +5,20 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# Build
-dist/
-build/
+node_modules
+dist
+dist-ssr
+*.local
 
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Editor / OS
-.vscode/
-.idea/
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
-Thumbs.db
-
-# Database runtime & Uploads
-*.db
-*.sqlite
-uploads/*
-!uploads/.gitkeep
-
-# Scratch and debugging scripts
-raw_match_*.json
-step_*.txt
-step_*.json
-replaceText.js
-restored_*.jsx
-rebuilt_clean_dashboard.jsx
-check_schema.js
-clear_calendar.js
-temp-*.js
-replace_end.cjs
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
